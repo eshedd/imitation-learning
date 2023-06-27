@@ -29,7 +29,7 @@ for episode in episodes:
 X = torch.cat(X)
 y = torch.hstack(Y)
 
-torch.manual_seed(3)
+torch.manual_seed(0)
 
 dataset = GermDataset(X, y)
 train_size = int(0.8 * len(dataset))
@@ -39,13 +39,16 @@ train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=16, shu
 test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=16, shuffle=True)
 
 model = Imitator()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)
 criterion = torch.nn.CrossEntropyLoss()
 
 losses = []
+train_losses = []
 best_loss = 100000
-for epoch in range(2000):
+for epoch in range(500):
     model.train()
+    t_loss = 0
+    i = 0
     for X, y in train_dataloader:
         optimizer.zero_grad()
         y_hat = model(X)
@@ -53,6 +56,9 @@ for epoch in range(2000):
         loss = criterion(y_hat, y)
         loss.backward()
         optimizer.step()
+        t_loss += loss.item()
+        i += 1
+    train_losses.append(t_loss/i)
     
     with torch.no_grad():
         model.eval()
@@ -66,7 +72,9 @@ for epoch in range(2000):
                 best_loss = loss.item()
                 torch.save(model, 'imitator.pt')
     
-plt.plot(list(range(0, len(losses) * 10, 10)), losses, label='loss')
+plt.plot(list(range(0, len(losses) * 10, 10)), losses, label='test loss')
+plt.plot(list(range(0, len(train_losses))), train_losses, label='train loss')
+plt.legend()
 plt.xlabel('epoch')
 plt.ylabel('loss')
 plt.savefig('loss.png')

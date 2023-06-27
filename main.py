@@ -21,36 +21,16 @@ class Germ(object):
     def fall(self):
         self.rect.y += 5
 
+def run(model, human, dual):
 
-# Initialise pygame
-os.environ["SDL_VIDEO_CENTERED"] = "1"  # centers window
-pygame.init()
+    player = Player()  # Create the player
+    clock = pygame.time.Clock()
 
-# Set up the display
-pygame.display.set_caption("Imitation Learning Test")
-screen_x, screen_y = 75, 100
-screen = pygame.display.set_mode((screen_x, screen_y))
-screen_rect = screen.get_rect()
-
-clock = pygame.time.Clock()
-germs = [] # List to hold the germs
-
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--human', action='store_true')  # human mode
-    args = parser.parse_args()
-
-    player = Player() # Create the player
-    SPAWNEVENT = pygame.USEREVENT+0
-    MOVEEVENT = pygame.USEREVENT+1
-    pygame.time.set_timer(SPAWNEVENT, 500)
-    pygame.time.set_timer(MOVEEVENT, 50)
-
-    human = args.human
     moves = 'x'
     states = []
+    score = 0
     running = True
+    
     while running:
 
         clock.tick(60)
@@ -84,8 +64,6 @@ if __name__ == '__main__':
             else:
                 move = 's'
         else:
-            model = torch.load('imitator.pt')
-            model.eval()
             state = [[player.rect.x, player.rect.y]] + [[germ.rect.x, germ.rect.y] for germ in germs]
             state = torch.tensor(state + ([[-100, -100]] * (4 - len(state))))
             state = state[None, :, :]
@@ -119,17 +97,63 @@ if __name__ == '__main__':
             else:
                 state.append([germ.rect.x, germ.rect.y])
         
-        if moves[-1] != move:
+        if (move == 's' and torch.rand(1).item() < 0.15 and human) or move != 's':
             moves += move
             states.append(state)
+        score += 1
+
         pygame.draw.rect(screen, (255, 255, 0), player.rect)
         pygame.display.flip()
+
+    if not dual:
+        if human:
+            file_name = 'data.txt'
+        else:
+            file_name = 'imitation.txt'
+        with open(file_name, 'a') as f:
+            f.write(moves + ' | ' + str(states) + '\n')
     
-    if human:
-        file_name = 'data.txt'
+    return score
+
+# Initialise pygame
+os.environ["SDL_VIDEO_CENTERED"] = "1"  # centers window
+pygame.init()
+
+# Set up the display
+pygame.display.set_caption("Imitation Learning Test")
+screen_x, screen_y = 75, 100
+screen = pygame.display.set_mode((screen_x, screen_y))
+screen_rect = screen.get_rect()
+
+SPAWNEVENT = pygame.USEREVENT+0
+MOVEEVENT = pygame.USEREVENT+1
+pygame.time.set_timer(SPAWNEVENT, 500)
+pygame.time.set_timer(MOVEEVENT, 50)
+
+germs = []
+model = torch.load('imitator.pt')
+model.eval()
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--human', action='store_true')  # human mode
+    parser.add_argument('-d', '--dual', action='store_true')  # dual mode
+    args = parser.parse_args()
+
+    human = args.human
+    dual = args.dual
+    
+    if dual:
+        random.seed(0)
+        bot_score = run(model, human=False, dual=True)
+        germs = []
+        random.seed(0)
+        score = run(model, human=human, dual=True)
+        print('Bot score:', bot_score)
+        print('Human score:', score)
     else:
-        file_name = 'imitation.txt'
-    with open(file_name, 'a') as f:
-        f.write(moves + ' | ' + str(states) + '\n')
+        score = run(model, human=human, dual=False)
+        print('Score:', score)
 
     raise SystemExit

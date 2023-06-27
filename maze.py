@@ -46,7 +46,7 @@ os.environ["SDL_VIDEO_CENTERED"] = "1"  # centers window
 pygame.init()
 
 # Set up the display
-pygame.display.set_caption("Dagger Test")
+pygame.display.set_caption("Maze Game")
 screen = pygame.display.set_mode((320, 240))
 
 clock = pygame.time.Clock()
