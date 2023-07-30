@@ -1,7 +1,12 @@
 from algo import Imitator
-import torch
+import torch, json
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
+
+'''
+Trains an Imitator model on human data. 
+Saves the model to ./models/imitator.pt
+'''
 
 class GermDataset(Dataset):
     def __init__(self, X, y):
@@ -15,19 +20,22 @@ class GermDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
-with open('data.txt') as f:
-    episodes = [line.rstrip() for line in f]
+with open('./data/human.json') as f:
+    dic = json.load(f)
+    episodes = dic['episodes']
 
-X, Y = [], []
+X, y = [], []
 for episode in episodes:
-    y, x = episode[1:].split('|')
-    x = eval(x)
-    x = [state + ([[-100, -100]] * (4 - len(state))) for state in x]
+    if len(episode['states']) < 200:
+        continue
+    x = episode['states']
+    x = [state + ([[-100, -100]] * (5 - len(state))) for state in x]
     X.append(torch.tensor(x))
-    moves = ['l', 'r', 'u', 'd', 's']
-    Y.append(torch.tensor([moves.index(move) for move in y[:-1]]))
+    y.append(torch.tensor(episode['actions']))
 X = torch.cat(X)
-y = torch.hstack(Y)
+y = torch.hstack(y)
+
+print('legal datapoints:', len(y))
 
 torch.manual_seed(0)
 
@@ -44,7 +52,6 @@ criterion = torch.nn.CrossEntropyLoss()
 
 losses = []
 train_losses = []
-best_loss = 100000
 for epoch in range(500):
     model.train()
     t_loss = 0
@@ -70,12 +77,12 @@ for epoch in range(500):
             losses.append(loss.item())
             if loss.item() < best_loss:
                 best_loss = loss.item()
-                torch.save(model, 'imitator.pt')
+                torch.save(model, './model/imitator_new.pt')
     
 plt.plot(list(range(0, len(losses) * 10, 10)), losses, label='test loss')
 plt.plot(list(range(0, len(train_losses))), train_losses, label='train loss')
 plt.legend()
 plt.xlabel('epoch')
 plt.ylabel('loss')
-plt.savefig('loss.png')
+plt.savefig('./model/new_loss.png')
 print('best loss:', best_loss)
