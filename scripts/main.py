@@ -1,8 +1,10 @@
 import os, json, random
 import pygame
 import torch
+import numpy as np
 import argparse
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from algo import Imitator, Reinforcer
 
 
@@ -141,18 +143,13 @@ def reinforce(model, optimizer, gamma=0.99):
     with open(file_name) as f:
         episodes = json.load(f)['episodes']
 
+    # unpacking data and calculating q values
     states, actions, q_values = [], [], []
     for episode in episodes:
         # get q values
         q_vals = torch.tensor([1] * len(episode['states']))
         n = len(q_vals)
         q_vals = torch.tensor([torch.sum(torch.mul(q_vals[i:], torch.pow(gamma, torch.range(start=i, end=n-1)))) for i in range(n)])
-        if len(q_vals) < 11:
-            q_vals *= -1
-        else:
-            for i in range(1, 11):
-                q_vals[-i] = -10 + i
-        print(q_vals)
         q_values.extend(q_vals)
         # get acts
         acts = torch.tensor(episode['actions'])
@@ -166,8 +163,9 @@ def reinforce(model, optimizer, gamma=0.99):
 
     states, actions, q_values = torch.cat(states), torch.cat(actions), torch.tensor(q_values)
     y_pred = model(states)
-    negative_likelihoods = -torch.nn.functional.cross_entropy(y_pred.float(), actions.float())
-    loss = torch.mul(negative_likelihoods, q_values).mean()
+    dists = torch.distributions.Categorical(y_pred)
+    log_probs = -dists.log_prob(actions.argmax(dim=1))
+    loss = torch.mul(log_probs, (q_values - q_values.mean())).mean()
     loss.backward()
     optimizer.step()
     
@@ -177,12 +175,12 @@ def reinforce(model, optimizer, gamma=0.99):
 
     return loss.item()
 
-def save_graph(losses):
+def save_graph(losses, lr, ep_count):
     plt.plot(losses, label='loss')
     plt.legend()
     plt.xlabel('update')
     plt.ylabel('loss')
-    plt.savefig('./model/r_loss.png')
+    plt.savefig(f'./model/r_loss_{int(np.log10(lr))}_{ep_count}.png')
     print('best loss:', min(losses))
 
 # Initialize pygame
@@ -205,16 +203,16 @@ germs = []
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--player')  # player mode
-    parser.add_argument('-d', '--dual', action='store_true')  # dual mode
+    parser.add_argument('-p', '--player', help='(0: human, 1: imitation, 2: policy grad)')  # player mode
+    parser.add_argument('-d', '--dual', action='store_true', help='turns on dual mode')  # dual mode
     args = parser.parse_args()
 
     player_type = int(args.player)
-    print('Player type:', ['human', 'imitation', 'reinforcement'][player_type])
+    print('Player type:', ['human', 'imitation', 'policy gradient'][player_type])
     dual = args.dual
     
     # model = torch.load('./model/reinforced.pt')  # load up, brother
-    model = Reinforcer()
+    model = Reinforcer(hid_dim=32, n_layers=2)
     model.eval()
 
     if dual:
@@ -227,28 +225,37 @@ if __name__ == '__main__':
         print('Human score:', score)
 
     elif player_type == 2:  # reinforcement
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-        updates = 1000  # number of times to update the model
-        episode_count = 1  # number of episodes to generate per update
+
+        params = {
+            'lr': 1e-3, 
+            'gamma': 0.99, 
+            'updates': 10,  # number of times to update the model
+            'episode_count': 20  # number of episodes to generate per update
+        }
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'])
         losses = []
-        for update in range(updates):
+        best_loss = float('inf')
+        for update in tqdm(range(params['updates'])):
             print('Update:', update)
             # generate samples
             with torch.no_grad():
                 model.eval()
-                for episode in range(episode_count):
+                for episode in range(params['episode_count']):
                     print('\tEpisode:', episode)
                     random.seed(1)
                     run(model, player_type=player_type, dual=False)
                     germs = []
             # learn from samples
-            loss = reinforce(model, optimizer)
+            loss = reinforce(model, optimizer, gamma=params['gamma'])
             losses.append(loss)
             print('Loss:', loss, '\n')
             optimizer.zero_grad()
-            torch.save(model, './model/reinforced.pt')
+            if loss < best_loss:
+                best_loss = loss
+                torch.save(model, './model/reinforced.pt')
 
-        save_graph(losses)
+        save_graph(losses, params['lr'], params['episode_count'])
 
     else:  # human or imitation
         score = run(model, player_type=player_type, dual=False)
